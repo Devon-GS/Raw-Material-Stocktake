@@ -1,0 +1,52 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-12 col-xl-10">
+    <div class="card soft-card">
+      <div class="card-body">
+        <h1 class="h3 mb-4">{{ page_title }}</h1>
+        <form method="post">
+          <div class="row g-3 mb-4">
+            <div class="col-md-4">
+              <label class="form-label">Stock Code</label>
+              <input type="text" class="form-control" name="stock_code" value="{{ recipe.stock_code if recipe else '' }}" required>
+            </div>
+            <div class="col-md-8">
+              <label class="form-label">Product Name</label>
+              <input type="text" class="form-control" name="product_name" value="{{ recipe.product_name if recipe else '' }}" required>
+            </div>
+          </div>
+
+          <div class="table-responsive">
+            <table class="table table-bordered align-middle">
+              <thead class="table-light">
+                <tr>
+                  <th>Raw Material</th>
+                  <th style="width: 180px;">Quantity</th>
+                </tr>
+              </thead>
+              <tbody>
+                {% for item in items %}
+                <tr>
+                  <td>
+                    <input type="text" class="form-control" name="raw_material" value="{{ item.raw_material }}">
+                  </td>
+                  <td>
+                    <input type="number" step="any" min="0" class="form-control" name="quantity" value="{{ item.quantity }}">
+                  </td>
+                </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+
+          <div class="d-flex gap-2">
+            <button type="submit" class="btn btn-primary">Save</button>
+            <a href="{{ url_for('settings') }}" class="btn btn-outline-secondary">Cancel</a>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
