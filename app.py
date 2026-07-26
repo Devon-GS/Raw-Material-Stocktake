@@ -3,13 +3,14 @@ import io
 import os
 import sqlite3
 from collections import defaultdict
+from math import ceil
 from decimal import Decimal, InvalidOperation
 
 from flask import Flask, flash, g, redirect, render_template, request, url_for
 
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-DATABASE = os.path.join(BASE_DIR, "app.db")
+DATABASE = os.environ.get("DATABASE_PATH", os.path.join(BASE_DIR, "app.db"))
 DEFAULT_RECIPE_CSV = os.path.join(BASE_DIR, "Recipe Listing.csv")
 DATABASE_PREEXISTED = os.path.exists(DATABASE)
 
@@ -73,33 +74,97 @@ def parse_quantity(value):
     return quantity
 
 
-def parse_recipe_csv(file_obj):
-    text_stream = io.StringIO(file_obj.read().decode("utf-8-sig"))
-    reader = csv.DictReader(text_stream)
-    grouped = defaultdict(list)
+def normalize_label(value):
+    return " ".join(str(value or "").strip().split())
 
-    for row in reader:
-        stock_code = (row.get("F/G Code") or "").strip()
-        product_name = (row.get("F/G Description") or "").strip()
-        raw_material = (row.get("R/M Description") or "").strip()
-        quantity_raw = row.get("Quantity")
 
-        if not stock_code or not product_name or not raw_material:
+def consolidate_recipe_items(items):
+    consolidated = []
+    lookup = {}
+    for item in items:
+        raw_material = normalize_label(item.get("raw_material"))
+        if not raw_material:
+            continue
+        quantity = parse_quantity(item.get("quantity"))
+        key = raw_material.casefold()
+        if key in lookup:
+            consolidated[lookup[key]]["quantity"] += quantity
+        else:
+            lookup[key] = len(consolidated)
+            consolidated.append({"raw_material": raw_material, "quantity": quantity})
+    return consolidated
+
+
+def collect_recipe_items_from_form(form):
+    materials = form.getlist("raw_material")
+    quantities = form.getlist("quantity")
+    items = []
+    for material, quantity in zip(materials, quantities):
+        material = normalize_label(material)
+        quantity = normalize_label(quantity)
+        if not material or not quantity:
+            continue
+        try:
+            items.append({"raw_material": material, "quantity": parse_quantity(quantity)})
+        except ValueError:
+            continue
+    return consolidate_recipe_items(items)
+
+
+def parse_recipe_rows(rows):
+    grouped = {}
+    issues = []
+
+    for row_number, row in enumerate(rows, start=1):
+        if not row or all(not cell.strip() for cell in row):
+            continue
+
+        if len(row) >= 6 and row[0].strip().casefold() in {"f/g code", "stock code"}:
+            continue
+
+        if len(row) < 6:
+            issues.append(f"Row {row_number}: skipped because it has fewer than 6 columns.")
+            continue
+
+        stock_code = normalize_label(row[0])
+        product_name = normalize_label(row[1])
+        raw_material = normalize_label(row[3])
+        quantity_raw = normalize_label(row[5])
+
+        if not stock_code or not product_name or not raw_material or not quantity_raw:
+            issues.append(f"Row {row_number}: skipped because required values were missing.")
             continue
 
         try:
             quantity = parse_quantity(quantity_raw)
         except ValueError:
+            issues.append(f"Row {row_number}: skipped because quantity '{quantity_raw}' is invalid.")
             continue
 
-        grouped[(stock_code, product_name)].append(
+        recipe = grouped.setdefault(
+            stock_code,
             {
-                "raw_material": raw_material,
-                "quantity": quantity,
-            }
+                "stock_code": stock_code,
+                "product_name": product_name,
+                "items": [],
+            },
         )
 
-    return grouped
+        if recipe["product_name"] != product_name:
+            recipe["product_name"] = product_name
+
+        recipe["items"].append({"raw_material": raw_material, "quantity": quantity})
+
+    for recipe in grouped.values():
+        recipe["items"] = consolidate_recipe_items(recipe["items"])
+
+    return grouped, issues
+
+
+def parse_recipe_csv(file_obj):
+    text_stream = io.StringIO(file_obj.read().decode("utf-8-sig"))
+    reader = csv.reader(text_stream)
+    return parse_recipe_rows(reader)
 
 
 def upsert_recipe(stock_code, product_name, items):
@@ -136,12 +201,14 @@ def upsert_recipe(stock_code, product_name, items):
 
 
 def import_recipes_from_csv(file_obj, replace=False):
-    grouped = parse_recipe_csv(file_obj)
+    grouped, issues = parse_recipe_csv(file_obj)
     if replace:
+        if not grouped:
+            raise ValueError("No valid recipes were found in the CSV.")
         clear_all_recipes()
-    for (stock_code, product_name), items in grouped.items():
-        upsert_recipe(stock_code, product_name, items)
-    return len(grouped)
+    for stock_code, recipe in grouped.items():
+        upsert_recipe(stock_code, recipe["product_name"], recipe["items"])
+    return len(grouped), issues
 
 
 def get_all_recipes():
@@ -173,6 +240,51 @@ def get_recipe(recipe_id):
         (recipe_id,),
     ).fetchall()
     return recipe, items
+
+
+def get_recipe_page(search="", page=1, per_page=20):
+    db = get_db()
+    search = normalize_label(search)
+    params = []
+    where_sql = ""
+    if search:
+        like = f"%{search.casefold()}%"
+        where_sql = "WHERE lower(stock_code) LIKE ? OR lower(product_name) LIKE ?"
+        params = [like, like]
+
+    total = db.execute(
+        f"SELECT COUNT(*) AS count FROM recipes {where_sql}",
+        params,
+    ).fetchone()["count"]
+
+    total_pages = max(1, ceil(total / per_page)) if total else 1
+    page = max(1, min(page, total_pages))
+    offset = (page - 1) * per_page
+
+    recipes = db.execute(
+        f"""
+        SELECT id, stock_code, product_name
+        FROM recipes
+        {where_sql}
+        ORDER BY stock_code COLLATE NOCASE
+        LIMIT ? OFFSET ?
+        """,
+        params + [per_page, offset],
+    ).fetchall()
+
+    return {
+        "recipes": recipes,
+        "search": search,
+        "page": page,
+        "per_page": per_page,
+        "total": total,
+        "total_pages": total_pages,
+        "page_numbers": list(range(max(1, page - 2), min(total_pages, page + 2) + 1)),
+        "has_prev": page > 1,
+        "has_next": page < total_pages,
+        "start": 0 if total == 0 else offset + 1,
+        "end": 0 if total == 0 else min(offset + len(recipes), total),
+    }
 
 
 def format_number(value):
@@ -264,38 +376,27 @@ def settings():
                 flash("Choose a CSV file to import.", "warning")
                 return redirect(url_for("settings"))
             try:
-                imported = import_recipes_from_csv(upload.stream, replace=(action == "replace"))
+                imported, issues = import_recipes_from_csv(upload.stream, replace=(action == "replace"))
             except Exception as exc:
                 flash(f"Import failed: {exc}", "danger")
                 return redirect(url_for("settings"))
-            message = (
-                f"Replaced all recipes and imported {imported} product(s)."
-                if action == "replace"
-                else f"Imported {imported} product(s)."
-            )
-            flash(message, "success")
+            if issues:
+                flash(f"Imported {imported} product(s) with {len(issues)} row warning(s).", "warning")
+            else:
+                flash(
+                    (
+                        f"Replaced all recipes and imported {imported} product(s)."
+                        if action == "replace"
+                        else f"Imported {imported} product(s)."
+                    ),
+                    "success",
+                )
             return redirect(url_for("settings"))
 
     query = (request.args.get("q") or "").strip()
-    db = get_db()
-    if query:
-        search = f"%{query}%"
-        recipes = db.execute(
-            """
-            SELECT DISTINCT r.id, r.stock_code, r.product_name
-            FROM recipes r
-            LEFT JOIN recipe_items ri ON ri.recipe_id = r.id
-            WHERE r.stock_code LIKE ?
-               OR r.product_name LIKE ?
-               OR ri.raw_material LIKE ?
-            ORDER BY r.product_name COLLATE NOCASE
-            """,
-            (search, search, search),
-        ).fetchall()
-    else:
-        recipes = get_all_recipes()
-
-    return render_template("settings.html", recipes=recipes, query=query)
+    page = request.args.get("page", 1, type=int)
+    pagination = get_recipe_page(search=query, page=page, per_page=20)
+    return render_template("settings.html", **pagination)
 
 
 @app.route("/recipes/new", methods=["GET", "POST"])
@@ -303,18 +404,7 @@ def recipe_new():
     if request.method == "POST":
         stock_code = request.form.get("stock_code", "").strip()
         product_name = request.form.get("product_name", "").strip()
-        materials = request.form.getlist("raw_material")
-        quantities = request.form.getlist("quantity")
-        items = []
-        for material, quantity in zip(materials, quantities):
-            material = material.strip()
-            quantity = quantity.strip()
-            if not material or not quantity:
-                continue
-            try:
-                items.append({"raw_material": material, "quantity": parse_quantity(quantity)})
-            except ValueError:
-                continue
+        items = collect_recipe_items_from_form(request.form)
 
         if not stock_code or not product_name:
             flash("Stock code and product name are required.", "warning")
@@ -350,18 +440,7 @@ def recipe_edit(recipe_id):
     if request.method == "POST":
         stock_code = request.form.get("stock_code", "").strip()
         product_name = request.form.get("product_name", "").strip()
-        materials = request.form.getlist("raw_material")
-        quantities = request.form.getlist("quantity")
-        new_items = []
-        for material, quantity in zip(materials, quantities):
-            material = material.strip()
-            quantity = quantity.strip()
-            if not material or not quantity:
-                continue
-            try:
-                new_items.append({"raw_material": material, "quantity": parse_quantity(quantity)})
-            except ValueError:
-                continue
+        new_items = collect_recipe_items_from_form(request.form)
 
         if not stock_code or not product_name:
             flash("Stock code and product name are required.", "warning")
@@ -416,4 +495,4 @@ def recipe_delete(recipe_id):
 if __name__ == "__main__":
     with app.app_context():
         init_db()
-    app.run(debug=True)
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", "5005")), debug=os.environ.get("FLASK_DEBUG") == "1")

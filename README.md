@@ -8,6 +8,9 @@ Flask app with SQLite storage and Bootstrap UI for recipe import, editing, and r
 - Shows all products on the main page with quantity inputs.
 - Processes selected products and multiplies raw material quantities by the entered amounts.
 - Lets you import new recipes, replace all recipes, search recipes, edit recipes, and delete recipes from the settings page.
+- The recipe form supports adding and removing raw material rows dynamically.
+- CSV import validates rows and consolidates duplicate raw materials within the same recipe.
+- The settings page includes stock-code search with pagination for large recipe lists.
 
 ## CSV columns used
 
@@ -32,6 +35,28 @@ python app.py
 ```
 
 4. Open the local Flask URL shown in the terminal.
+
+## Run with Docker
+
+1. Build and start the container:
+
+```bash
+docker compose up --build
+```
+
+2. Open the app at:
+
+```bash
+http://localhost:5005
+```
+
+Docker settings:
+
+- Image name: `raw-material-image`
+- Container name: `raw-material`
+- Port: `5005:5005`
+- SQLite database path inside the container: `/data/app.db`
+- Database persistence: handled by the named Docker volume `raw-material-data`
 
 ## Notes
 

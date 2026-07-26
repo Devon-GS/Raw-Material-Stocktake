@@ -4,8 +4,15 @@
   <div class="col-12 col-xl-10">
     <div class="card soft-card">
       <div class="card-body">
-        <h1 class="h3 mb-4">{{ page_title }}</h1>
-        <form method="post">
+        <div class="d-flex flex-wrap justify-content-between align-items-center gap-3 mb-4">
+          <div>
+            <h1 class="h3 mb-1">{{ page_title }}</h1>
+            <p class="muted-small mb-0">Add as many raw material lines as needed, then save the recipe.</p>
+          </div>
+          <button type="button" class="btn btn-outline-primary" id="add-row-btn">Add row</button>
+        </div>
+
+        <form method="post" id="recipe-form">
           <div class="row g-3 mb-4">
             <div class="col-md-4">
               <label class="form-label">Stock Code</label>
@@ -23,9 +30,10 @@
                 <tr>
                   <th>Raw Material</th>
                   <th style="width: 180px;">Quantity</th>
+                  <th style="width: 100px;" class="text-end">Action</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody id="recipe-rows">
                 {% for item in items %}
                 <tr>
                   <td>
@@ -34,13 +42,30 @@
                   <td>
                     <input type="number" step="any" min="0" class="form-control" name="quantity" value="{{ item.quantity }}">
                   </td>
+                  <td class="text-end">
+                    <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Remove</button>
+                  </td>
                 </tr>
                 {% endfor %}
               </tbody>
             </table>
           </div>
 
-          <div class="d-flex gap-2">
+          <template id="recipe-row-template">
+            <tr>
+              <td>
+                <input type="text" class="form-control" name="raw_material" value="">
+              </td>
+              <td>
+                <input type="number" step="any" min="0" class="form-control" name="quantity" value="">
+              </td>
+              <td class="text-end">
+                <button type="button" class="btn btn-sm btn-outline-danger" data-remove-row>Remove</button>
+              </td>
+            </tr>
+          </template>
+
+          <div class="d-flex gap-2 mt-4">
             <button type="submit" class="btn btn-primary">Save</button>
             <a href="{{ url_for('settings') }}" class="btn btn-outline-secondary">Cancel</a>
           </div>
@@ -49,4 +74,53 @@
     </div>
   </div>
 </div>
+
+<script>
+  document.addEventListener("DOMContentLoaded", () => {
+    const tbody = document.getElementById("recipe-rows");
+    const template = document.getElementById("recipe-row-template");
+    const addRowButton = document.getElementById("add-row-btn");
+
+    function addRow() {
+      const clone = template.content.cloneNode(true);
+      tbody.appendChild(clone);
+      const lastRow = tbody.querySelector("tr:last-child input[name='raw_material']");
+      if (lastRow) {
+        lastRow.focus();
+      }
+    }
+
+    function trimBlankRows() {
+      const rows = Array.from(tbody.querySelectorAll("tr"));
+      if (rows.length === 0) {
+        addRow();
+      }
+    }
+
+    addRowButton.addEventListener("click", addRow);
+
+    tbody.addEventListener("click", (event) => {
+      const removeButton = event.target.closest("[data-remove-row]");
+      if (!removeButton) {
+        return;
+      }
+
+      const rows = tbody.querySelectorAll("tr");
+      const row = removeButton.closest("tr");
+      if (!row) {
+        return;
+      }
+
+      if (rows.length === 1) {
+        row.querySelectorAll("input").forEach((input) => (input.value = ""));
+        return;
+      }
+
+      row.remove();
+      trimBlankRows();
+    });
+
+    trimBlankRows();
+  });
+</script>
 {% endblock %}
