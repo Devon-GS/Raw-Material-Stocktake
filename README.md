@@ -1,65 +1,82 @@
-# Raw Material Stocktake
+Here is a comprehensive `README.md` file tailored specifically to the functionality found in your `app.py` code. 
 
-Flask app with SQLite storage and Bootstrap UI for recipe import, editing, and raw material calculations.
+***
 
-## What it does
+# Recipe & Raw Material Calculator
 
-- Loads recipes from `Recipe Listing.csv` on first run.
-- Shows all products on the main page with quantity inputs.
-- Processes selected products and multiplies raw material quantities by the entered amounts.
-- Lets you import new recipes, replace all recipes, search recipes, edit recipes, and delete recipes from the settings page.
-- The recipe form supports adding and removing raw material rows dynamically.
-- CSV import validates rows and consolidates duplicate raw materials within the same recipe.
-- The settings page includes stock-code search with pagination for large recipe lists.
+A lightweight, Flask-based web application designed to manage product recipes and calculate the total raw materials required for production batches. 
 
-## CSV columns used
+This tool is ideal for manufacturing, bakeries, or any production environment where you need to know exactly how much of each raw material to pull from inventory to fulfill an order of finished goods.
 
-- `F/G Code` -> stock code
-- `F/G Description` -> product name
-- `R/M Description` -> raw material
-- `Quantity` -> quantity of raw material used for one product
+## Features
 
-## Run locally
+* **Dynamic Material Calculation:** Input quantities for various finished products, and the app will calculate and consolidate the total amount of every raw material needed.
+* **Recipe Management (CRUD):** Create, read, update, and delete product recipes directly from the web interface.
+* **Bulk CSV Import:** Easily import or update your entire recipe database using a CSV file.
+* **Smart Consolidation:** Automatically merges duplicate raw material entries within a recipe and during total calculation.
+* **Pagination & Search:** Easily navigate and search through your recipe database.
+* **Zero-Setup Database:** Uses SQLite. The database initializes automatically on the first run.
 
-1. Create or activate a Python environment.
-2. Install dependencies:
+## Prerequisites
 
-```bash
-pip install -r requirements.txt
-```
+* Python 3.7 or higher
+* [Flask](https://flask.palletsprojects.com/)
 
-3. Start the app:
+## Installation
 
+1. **Clone or download the repository.**
+2. **Navigate to the project directory:**
+   ```bash
+   cd path/to/your/project
+   ```
+3. **Create a virtual environment (recommended):**
+   ```bash
+   python -m venv venv
+   source venv/bin/activate  # On Windows use: venv\Scripts\activate
+   ```
+4. **Install the required dependencies:**
+   ```bash
+   pip install Flask
+   ```
+## Usage
+
+Start the application by running:
 ```bash
 python app.py
 ```
+The application will run by default on `http://0.0.0.0:5005/`.
 
-4. Open the local Flask URL shown in the terminal.
+### App Workflow
+1. **Home Page (`/`):** Displays a list of all your finished products. Enter the quantity you want to produce for any number of products and click "Process".
+2. **Results Page (`/process`):** Displays a consolidated list of every raw material and the exact quantities needed to fulfill the batch.
+3. **Settings & Recipes (`/settings`):** Manage your database. Add new recipes manually, edit existing ones, or use the CSV uploader to append or replace your database.
 
-## Run with Docker
+## CSV Import Format
 
-1. Build and start the container:
+If you use the CSV import feature (via the Settings page or the auto-load feature), your CSV must have at least 6 columns. The application maps the columns as follows:
 
-```bash
-docker compose up --build
-```
+| Column A (Index 0) | Column B (Index 1) | Column C (Index 2) | Column D (Index 3) | Column E (Index 4) | Column F (Index 5) |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Stock Code** | **Product Name** | *Ignored* | **Raw Material** | *Ignored* | **Quantity** |
 
-2. Open the app at:
+* **Header Row:** The app automatically skips the row if Column A contains the text `f/g code` or `stock code` (case-insensitive).
+* **Missing Data:** Rows missing required values (Stock code, Product Name, Material, or Quantity) will be safely skipped, and you will receive a warning message letting you know which rows were skipped.
 
-```bash
-http://localhost:5005
-```
+## Environment Variables
 
-Docker settings:
+You can customize the app's behavior by setting the following environment variables:
 
-- Image name: `raw-material-image`
-- Container name: `raw-material`
-- Port: `5005:5005`
-- SQLite database path inside the container: `/data/app.db`
-- Database persistence: handled by the named Docker volume `raw-material-data`
+* `DATABASE_PATH`: Custom path for the SQLite database. (Default: `app.db` in the app directory)
+* `SECRET_KEY`: Flask secret key used for session management and flashing messages. (Default: `dev-secret-key`)
+* `PORT`: The port the application runs on. (Default: `5005`)
+* `FLASK_DEBUG`: Set to `1` to run the application in debug mode.
 
-## Notes
+## Project Structure
 
-- Use the Settings page to import a CSV with the same column structure.
-- "Add New Recipe(s)" appends or updates recipes by stock code.
-- "Upload All Recipes Again" clears the database first, then reloads the CSV.
+* `app.py`: The main Flask application logic and database routing.
+* `app.db`: The SQLite database (auto-generated).
+* `templates/`: *(Make sure you have this folder containing your HTML files)*
+  * `index.html`: Main calculator form.
+  * `results.html`: Consolidated raw materials view.
+  * `settings.html`: Recipe list and CSV upload form.
+  * `recipe_form.html`: Add/Edit individual recipe form.
