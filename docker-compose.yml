@@ -13,6 +13,7 @@ services:
       SECRET_KEY: dev-secret-key
     volumes:
       - raw-material-data:/data
+    restart: unless-stopped
 
 volumes:
   raw-material-data:
